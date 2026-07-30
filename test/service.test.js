@@ -124,10 +124,10 @@ test('unit_name reaches the signature block only for offices that opt in', () =>
   );
 });
 
-test('createLetter returns the DOCX as MCP binary content, not a link', async () => {
-  // The point of the change away from S3: the bytes come back in the response, so
-  // there is no URL to expire and no bucket to configure. A regression here would
-  // most likely look like a `resource_link` reappearing.
+test('createLetter returns the DOCX as MCP binary content when delivery is unconfigured', async () => {
+  // Blob mode is still the default and still correct per the MCP specification.
+  // A regression here would most likely look like a `resource_link` reappearing,
+  // or URL mode leaking on without its configuration.
   const registry = testRegistry();
   const result = await createLetter(
     { ...VALID_ARGS, letterhead_id: 'generic', filename: 'Letter for Client.docx' },
@@ -221,4 +221,41 @@ test('the bundled registry loads and can produce a letter with no configuration'
 
   const result = await createLetter(VALID_ARGS, { registry, organizationName: 'Your Organization' });
   assert.equal(result.content.filter((part) => part.type === 'resource').length, 1);
+});
+
+test('createLetter returns a download URL end to end when delivery is configured', async () => {
+  // The whole path, not just the delivery helper: real template, real render,
+  // real file on disk, and a URL that points at what was actually written.
+  // LibreChat v0.8.7 discards `blob`, so on that client this is the only mode
+  // where the document reaches anyone.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'letterwriter-e2e-'));
+  const registry = testRegistry();
+
+  const result = await createLetter(
+    { ...VALID_ARGS, letterhead_id: 'generic', filename: 'Closing Letter - Alex Client.docx' },
+    {
+      registry,
+      organizationName: 'Example Legal Aid',
+      config: { letterOutputDir: dir, letterPublicBaseUrl: 'https://chat.example.org/letters' },
+    },
+  );
+
+  assert.equal(result.content.length, 1, 'URL mode must not also embed the bytes');
+  const { text } = result.content[0];
+
+  const match = text.match(/Download URL: (https:\/\/\S+)/);
+  assert.ok(match, `expected a download URL, got: ${text}`);
+  assert.match(match[1], /^https:\/\/chat\.example\.org\/letters\/[A-Za-z0-9_-]{32}\/Closing%20Letter%20-%20Alex%20Client\.docx$/);
+
+  // The advertised file exists, is a real .docx, and holds the rendered letter.
+  const token = match[1].match(/letters\/([A-Za-z0-9_-]{32})\//)[1];
+  const onDisk = path.join(dir, token, 'Closing Letter - Alex Client.docx');
+  const bytes = fs.readFileSync(onDisk);
+  assert.equal(bytes.subarray(0, 2).toString('ascii'), 'PK');
+
+  const PizZip = require('pizzip');
+  const xml = new PizZip(bytes).file('word/document.xml').asText();
+  assert.match(xml, /Alex Client/);
 });

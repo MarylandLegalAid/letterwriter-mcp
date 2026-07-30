@@ -1,23 +1,37 @@
 // Letter generation: match an office to a letterhead, fill the template, and
 // return the .docx.
 //
-// HOW THE DOCUMENT COMES BACK. This used to upload the rendered file to S3 and
-// return a presigned download link. It now returns the bytes themselves, as an
-// MCP embedded resource with a base64 `blob`, and the client attaches them to
-// the conversation. That is not a simplification for its own sake:
+// HOW THE DOCUMENT COMES BACK lives in src/delivery.js, and there are two modes.
+// The short history, because it explains why there are two rather than one:
 //
-//   - A presigned link expires. A letter in a conversation from three weeks ago
-//     became a dead URL, which looks like data loss to the person who wrote it.
-//   - It removes object storage, and its credentials, from this server entirely.
-//     There is now nothing here to leak and no bucket policy to get wrong.
-//   - It works the same whether the deployment stores files on a disk or in a
-//     bucket, because the decision is no longer this server's to make.
+//   1. Originally the rendered file went to S3 and the tool returned a presigned
+//      link. That was dropped: the links expire, so a letter in a conversation
+//      from three weeks ago became a dead URL, which looks like data loss to the
+//      person who wrote it — and it put object storage credentials in this
+//      server, where there was nothing else worth stealing.
+//
+//   2. It was replaced by returning the bytes as an MCP embedded resource, which
+//      is what the specification provides for and needs no storage at all. That
+//      is still the default here and still correct.
+//
+//   3. LibreChat v0.8.7 turned out not to implement it. Its tool-result handler
+//      reads text, image and resource, and the resource case looks only at
+//      `ui://` URIs, `text`, `uri` and `mimeType`. `blob` is never read, so the
+//      document is silently dropped and the user is handed a description of a
+//      file that does not exist. So URL delivery came back — but writing to a
+//      local directory the deployment already serves, with no expiry and no
+//      cloud credentials, rather than to a bucket.
+//
+// Mode 3 is opt-in via LETTER_OUTPUT_DIR + LETTER_PUBLIC_BASE_URL. Unset, this
+// server behaves exactly as it did in mode 2.
 
 const fs = require('fs');
 const path = require('path');
 
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
+
+const { buildLetterContent } = require('./delivery');
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -307,7 +321,7 @@ const FIELD_LIMITS = {
   filename: 180,
 };
 
-async function createLetter(args, { registry, organizationName }) {
+async function createLetter(args, { registry, organizationName, config }) {
   for (const key of REQUIRED_FIELDS) {
     if (!args || typeof args[key] !== 'string' || args[key].trim() === '') {
       throw new Error(`Missing or invalid required field: ${key}`);
@@ -343,27 +357,16 @@ async function createLetter(args, { registry, organizationName }) {
   const buffer = renderDocx(data, letterhead, registry);
   const outName = safeFilename(args.filename || `Letter - ${args.client_last_name}.docx`);
 
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Letter created on the ${letterhead.label} letterhead${letterhead.match?.fallback ? ' (default fallback)' : ''}: ${outName}`,
-      },
-      {
-        // An MCP embedded resource carrying the bytes. `blob` is base64 by
-        // specification; the client decodes it and attaches the file.
-        type: 'resource',
-        resource: {
-          // A uri is required. encodeURI keeps a filename with spaces — which is
-          // the normal case here — from producing an invalid one.
-          uri: `file:///${encodeURI(outName)}`,
-          name: outName,
-          mimeType: DOCX_MIME,
-          blob: buffer.toString('base64'),
-        },
-      },
-    ],
-  };
+  // How the document actually reaches the user — a written file plus a URL, or
+  // embedded bytes — depends on the deployment. See src/delivery.js.
+  const content = await buildLetterContent({
+    buffer,
+    outName,
+    letterhead,
+    config: { ...(config || {}), docxMime: DOCX_MIME },
+  });
+
+  return { content };
 }
 
 async function listLetterheads({ registry }) {

@@ -114,7 +114,7 @@ docker run -d --name letterwriter-mcp \
   -e MCP_ALLOWED_HOSTS=letterwriter-mcp,localhost,127.0.0.1 \
   -v /srv/letterheads:/data/letterheads:ro \
   -p 127.0.0.1:3002:3002 \
-  ghcr.io/marylandlegalaid/letterwriter-mcp:v1.0.0
+  ghcr.io/marylandlegalaid/letterwriter-mcp:v1.1.0
 ```
 
 | Variable | Default | Means |
@@ -125,8 +125,40 @@ docker run -d --name letterwriter-mcp \
 | `MCP_HTTP_PORT` | `3002` | |
 | `MCP_ALLOWED_HOSTS` | unset | **See below** |
 | `MCP_SHARED_SECRET` | unset | Optional shared-secret header; no-ops when unset |
+| `LETTER_OUTPUT_DIR` | unset | Where finished letters are written. **Set with the next one or neither** |
+| `LETTER_PUBLIC_BASE_URL` | unset | Absolute URL prefix serving that directory |
 | `LETTERHEAD_REGISTRY_PATH` | — | Override just the registry path |
 | `LETTERHEAD_TEMPLATES_DIR` | — | Override just the template directory |
+
+### How the document comes back
+
+Two modes, chosen by whether `LETTER_OUTPUT_DIR` and `LETTER_PUBLIC_BASE_URL` are set.
+
+**Unset (default) — embedded bytes.** `create_letter` returns the `.docx` as an MCP
+embedded resource with a base64 `blob`. This is what the MCP specification provides for
+and needs no storage.
+
+**Both set — a download URL.** The letter is written to
+`${LETTER_OUTPUT_DIR}/<random-token>/<filename>.docx` and the tool returns an absolute
+URL. Setting only one is a startup error: an output directory with no URL writes files
+nobody can reach, and a URL with no directory advertises files that were never written.
+Both are invisible until someone clicks a link, so they are refused up front.
+
+!!! warning "LibreChat users: you need URL mode"
+    **LibreChat v0.8.7 does not read `blob`.** Its MCP tool-result handler has cases for
+    text, image and resource, and the resource case reads only `ui://` URIs, `text`, `uri`
+    and `mimeType`. The bytes are dropped, and the model is handed a description of a file
+    it cannot give anyone — typically producing a plausible-looking link to `file:///…`,
+    which a browser resolves against the current page. Configure URL mode.
+
+The URL is a capability: whoever has it can fetch the document, with no further
+authentication. The token is 24 CSPRNG bytes, base64url-encoded, so it is not guessable.
+Note that in the LibreChat case the letter's text is already in the conversation that
+produced it, so the file exposes nothing that conversation does not.
+
+Links **do not expire**, deliberately — an expiring link makes a letter written three
+weeks ago look like data loss. Retention is the deployment's business; the directory is
+ordinary files on disk and can be pruned by age if it ever needs to be.
 
 **`MCP_ALLOWED_HOSTS` will bite you.** The MCP SDK rejects requests whose `Host` header
 it does not recognize. Behind Docker Compose the caller sends the *service name*, so that
