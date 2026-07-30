@@ -1,0 +1,26 @@
+# =============================================================================
+# This repository is PUBLIC.
+# =============================================================================
+# Letterhead .docx files are an organization's private branding. They are read at
+# runtime from LETTERHEAD_DIR — a directory outside this repository — and must
+# never be committed. Flipping a file into git history is permanent: deleting it
+# in a later commit does not remove it from the history a clone carries.
+#
+# templates/letterheads/generic.docx is the ONE exception and is force-added. It
+# is a 1.2 KB placeholder containing the docxtemplater placeholders and the words
+# "[ YOUR LETTERHEAD ARTWORK GOES HERE ]" — no artwork, no organization.
+# =============================================================================
+
+*.docx
+*.doc
+!templates/letterheads/generic.docx
+
+# The registry can name a real organization's offices, so a deployment's own copy
+# lives beside its .docx files in LETTERHEAD_DIR, not here.
+letterheads.local.json
+
+.env
+.env.*
+!.env.example
+
+node_modules/

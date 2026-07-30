@@ -1,0 +1,42 @@
+{
+  "$comment": [
+    "The letterheads this server can render onto. THIS IS THE FALLBACK COPY.",
+    "",
+    "A real deployment does not edit this file. It puts its own letterheads.json,",
+    "next to its own .docx files, in the directory named by LETTERHEAD_DIR — so an",
+    "organization's office names and branding stay out of this public repository.",
+    "This copy is what the server uses when LETTERHEAD_DIR has no registry, which",
+    "is what lets a fresh install start and generate a letter immediately.",
+    "",
+    "Each entry needs a .docx containing docxtemplater placeholders. Copy",
+    "templates/letterheads/generic.docx and restyle it with your artwork; keep the",
+    "{placeholders}.",
+    "",
+    "  id                  stable machine name; what letterhead_id accepts",
+    "  label               human name, shown by the list_letterheads tool",
+    "  file                filename within the registry's directory",
+    "  aliases             free-text spellings a model might be handed for this office",
+    "  legalserver_offices exact office names as they appear in LegalServer, if you",
+    "                      use it, so a matter lookup resolves to the right letterhead",
+    "  include_unit_name   optional; when true, a unit_name argument is added to the",
+    "                      signature block for this office only",
+    "",
+    "  defaultId  which letterhead to use when nothing matches",
+    "  stopWords  words ignored when matching office names. Add your organization's",
+    "             own name so 'Example Legal Aid — Riverside Office' matches",
+    "             'riverside'.",
+    "",
+    "Full walkthrough: README.md"
+  ],
+  "defaultId": "generic",
+  "stopWords": ["office"],
+  "letterheads": [
+    {
+      "id": "generic",
+      "label": "Generic",
+      "file": "generic.docx",
+      "aliases": ["generic", "default", "main", "headquarters"],
+      "legalserver_offices": []
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+# Tests on every push and pull request. The release workflow runs these again
+# before publishing, so this exists to fail early rather than at tag time.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      # Duplicated from release.yml on purpose: this is the check that must not
+      # first run at tag time, because by then the letterhead is already in the
+      # public history and no later commit removes it.
+      - name: Check no letterhead files were committed
+        run: |
+          set -euo pipefail
+          unexpected="$(git ls-files '*.docx' '*.doc' | grep -v '^templates/letterheads/generic.docx$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::documents other than the placeholder are committed:"
+            echo "$unexpected"
+            exit 1
+          fi
+          size="$(stat -c%s templates/letterheads/generic.docx)"
+          if [ "$size" -gt 51200 ]; then
+            echo "::error::templates/letterheads/generic.docx is ${size} bytes; the placeholder is ~1.3 KB. Real letterhead artwork must not be committed."
+            exit 1
+          fi
+          echo "Only the ${size}-byte placeholder is present."
+
+  docker:
+    name: image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t letterwriter-mcp:ci .
+
+      # Proves the image starts with no configuration and answers on the path
+      # LibreChat is told to use. A Dockerfile that forgets to COPY letterheads.json
+      # builds perfectly and then refuses to start.
+      - name: Run and probe
+        run: |
+          set -euo pipefail
+          docker run -d --name lw -p 127.0.0.1:3002:3002 letterwriter-mcp:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3002/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3002/healthz
+          echo
+          curl -fsS -X POST http://127.0.0.1:3002/letter-writer/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | grep -q 'letterwriter-mcp'
+          echo "MCP handshake OK"
+          docker rm -f lw
