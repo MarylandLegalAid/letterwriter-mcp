@@ -1,6 +1,6 @@
 {
   "name": "letterwriter-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Streamable HTTP MCP server that generates DOCX letters on your organization's own letterhead",
   "main": "index.js",
   "scripts": {
